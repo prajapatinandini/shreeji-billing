@@ -1,0 +1,49 @@
+Logs
+
+logs
+.log
+npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+
+Dependencies
+
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+Editor directories and files
+
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+.ntvs
+*.njsproj
+*.sln
+*.sw?
+
+Environment Variables (CRITICAL: Do not upload .env files!)
+
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+Build outputs
+
+build/
+coverage/
+
+OS generated files
+
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
