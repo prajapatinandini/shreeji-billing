@@ -20,8 +20,7 @@ const defaultNotes = [
 ];
 
 // Backend URL setup safely
-// Note: GitHub/Vercel par deploy karte waqt is 'http://localhost:5000' ko apne Render backend URL se replace kar lijiye.
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
 export default function App() {
   const [appState, setAppState] = useState('home'); // 'home', 'invoice', 'quotation', 'history'
@@ -32,7 +31,7 @@ export default function App() {
   const [historyList, setHistoryList] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [historyType, setHistoryType] = useState('invoice'); // 'invoice' ya 'quotation'
-  const [editingId, setEditingId] = useState(null); // Purana bill/quotation edit karne ke liye ID
+  const [editingId, setEditingId] = useState(null); // Purana bill edit karne ke liye ID
 
   const todayDate = new Date().toISOString().split('T')[0];
 
@@ -61,7 +60,7 @@ export default function App() {
     }
   }, []);
 
-  // Fetch Invoice Number (Sirf tab jab naya bill ban raha ho, edit karte waqt nahi)
+  // Fetch Invoice Number
   useEffect(() => {
     if (appState !== 'invoice' || editingId !== null) return;
     
@@ -138,6 +137,7 @@ export default function App() {
     return { subtotal, gstAmount, total };
   };
 
+  // MOBILE FIX + SAVE LOGIC
   const handleSaveAndPrint = async () => {
     setIsSaving(true);
     try {
@@ -152,16 +152,24 @@ export default function App() {
         body: JSON.stringify(payload)
       });
       
+      // Success dikhao
       setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 2000);
-      window.print();
       
-      // Print ke baad reset
-      setEditingId(null);
-      if (appState === 'invoice') setInvoice(getEmptyInvoice());
-      if (appState === 'quotation') setQuotation(getEmptyQuotation());
+      // Thoda delay dekar window.print call karo mobile ke liye
+      setTimeout(() => {
+        window.print();
+      }, 500);
+
+      // 3 second baad success message hatao aur reset karo
+      setTimeout(() => {
+        setShowSuccess(false);
+        setEditingId(null);
+        if (appState === 'invoice') setInvoice(getEmptyInvoice());
+        if (appState === 'quotation') setQuotation(getEmptyQuotation());
+      }, 3000);
 
     } catch (error) {
+      alert("Database error. Abhi print kar rahe hain par history me save nahi hua.");
       window.print(); 
     }
     setIsSaving(false);
@@ -206,7 +214,7 @@ export default function App() {
   };
 
   const HeaderBlock = () => (
-    <div className="flex flex-col items-center border-b-2 border-orange-500 pb-4 mb-6 print:mb-4">
+    <div className="flex flex-col items-center border-b-2 border-orange-500 pb-4 mb-6">
       <div className="flex items-center gap-2 mb-2">
         <svg width="70" height="70" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M50 20L10 50H20V90H80V50H90L50 20Z" fill="url(#paint0_linear)" />
@@ -240,7 +248,7 @@ export default function App() {
         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center border-t-8 border-orange-500">
           <div className="flex justify-center mb-6"><Building2 size={60} className="text-orange-500"/></div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Shreeji Construction</h2>
-          <p className="text-gray-500 mb-8">What would you like to do today?</p>
+          <p className="text-gray-500 mb-8">Kya banana hai aaj?</p>
           <div className="space-y-4">
             <button onClick={createNewInvoice} className="w-full bg-orange-600 hover:bg-orange-700 text-white p-4 rounded-xl text-lg font-bold flex items-center justify-center gap-4 transition-transform active:scale-95 shadow-md">
               <FileText size={24} /> Create Tax Invoice
@@ -266,20 +274,9 @@ export default function App() {
             <button onClick={() => setAppState('home')} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 flex items-center gap-2 transition-colors"><ArrowLeft size={18}/> Back</button>
           </div>
 
-          {/* Toggle Between Invoice and Quotation History */}
           <div className="flex gap-4 mb-6 border-b pb-4">
-            <button 
-              onClick={() => setHistoryType('invoice')}
-              className={`px-4 py-2 rounded-lg font-bold transition-colors ${historyType === 'invoice' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            >
-              Tax Invoices
-            </button>
-            <button 
-              onClick={() => setHistoryType('quotation')}
-              className={`px-4 py-2 rounded-lg font-bold transition-colors ${historyType === 'quotation' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-            >
-              Quotations
-            </button>
+            <button onClick={() => setHistoryType('invoice')} className={`px-4 py-2 rounded-lg font-bold transition-colors ${historyType === 'invoice' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Tax Invoices</button>
+            <button onClick={() => setHistoryType('quotation')} className={`px-4 py-2 rounded-lg font-bold transition-colors ${historyType === 'quotation' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Quotations</button>
           </div>
 
           {isLoadingHistory ? (
@@ -306,16 +303,9 @@ export default function App() {
                       <td className="p-3 text-sm">{doc.date ? doc.date.split('-').reverse().join('-') : '-'}</td>
                       {historyType === 'invoice' && <td className="p-3 text-sm text-center font-bold text-orange-700">#{doc.invoiceNo}</td>}
                       <td className="p-3 text-sm font-medium text-gray-800">{doc.toName || 'Unknown'}</td>
-                      <td className="p-3 text-sm text-right font-bold text-gray-800">
-                        ₹{formatCurrency(calculateTotals(doc.items || [], historyType === 'invoice' && doc.applyGst !== undefined ? doc.applyGst : false).total)}
-                      </td>
+                      <td className="p-3 text-sm text-right font-bold text-gray-800">₹{formatCurrency(calculateTotals(doc.items || [], historyType === 'invoice' && doc.applyGst !== undefined ? doc.applyGst : false).total)}</td>
                       <td className="p-3 text-center">
-                        <button 
-                          onClick={() => historyType === 'invoice' ? handleEditInvoice(doc) : handleEditQuotation(doc)} 
-                          className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded font-bold text-xs inline-flex items-center gap-1 transition-colors"
-                        >
-                          <Edit size={14} /> Edit
-                        </button>
+                        <button onClick={() => historyType === 'invoice' ? handleEditInvoice(doc) : handleEditQuotation(doc)} className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded font-bold text-xs inline-flex items-center gap-1 transition-colors"><Edit size={14} /> Edit</button>
                       </td>
                     </tr>
                   ))}
@@ -329,26 +319,23 @@ export default function App() {
   }
 
   const isEditing = editingId !== null;
-  const pageTitle = appState === 'invoice' 
-    ? (isEditing ? 'Edit Tax Invoice' : 'New Tax Invoice') 
-    : (isEditing ? 'Edit Quotation' : 'New Quotation');
+  const pageTitle = appState === 'invoice' ? (isEditing ? 'Edit Tax Invoice' : 'New Tax Invoice') : (isEditing ? 'Edit Quotation' : 'New Quotation');
 
   return (
-    <div className="h-screen print:h-auto w-full flex print:block flex-col bg-gray-100 print:bg-transparent overflow-hidden print:overflow-visible font-sans">
+    <div className="h-screen w-full flex flex-col bg-gray-100 font-sans print-wrapper-1">
       <nav className="bg-orange-600 text-white p-3 shadow-md print:hidden flex items-center justify-between shrink-0 z-50">
         <button onClick={() => setAppState('home')} className="flex items-center gap-2 bg-orange-700 px-3 py-1.5 rounded text-sm font-bold hover:bg-orange-800"><ArrowLeft size={18} /> Home</button>
         <h1 className="font-bold text-lg">{pageTitle}</h1>
         <Building2 size={24} className="opacity-80"/>
       </nav>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden w-full max-w-[1600px] mx-auto print:block print:overflow-visible print:h-auto print:max-w-full">
-        <div className="order-1 lg:order-2 w-full lg:w-3/5 xl:w-2/3 h-[45vh] lg:h-full overflow-auto bg-gray-300 print:bg-transparent print:h-auto print:overflow-visible print:w-full print:block relative print:static border-b-4 border-gray-400 lg:border-b-0 lg:border-l-4 print:border-none">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden w-full max-w-[1600px] mx-auto print-wrapper-2">
+        <div className="order-1 lg:order-2 w-full lg:w-3/5 xl:w-2/3 h-[45vh] lg:h-full overflow-auto bg-gray-300 relative border-b-4 border-gray-400 lg:border-b-0 lg:border-l-4 print-wrapper-3">
           <div className="print:hidden sticky top-0 bg-gray-800/80 text-white text-xs p-1.5 text-center font-medium z-10 backdrop-blur-sm">👁️ Live Preview</div>
 
-          <div className="bg-white shadow-2xl print:shadow-none min-w-[700px] sm:min-w-[800px] print:min-w-0 print:w-full min-h-[1056px] print:min-h-0 p-8 mx-auto origin-top mt-2 mb-10 print:m-0 relative print:static flex flex-col print:block print:overflow-visible print:h-auto print:bg-transparent print-page-wrapper">
+          <div className="bg-white shadow-2xl min-w-[700px] sm:min-w-[800px] min-h-[1056px] p-8 mx-auto origin-top mt-2 mb-10 relative flex flex-col print-paper print-page-wrapper">
               <HeaderBlock />
               
-              {/* Common Section for Both */}
               <div className="flex justify-between items-start mb-6">
                 <div className="w-1/2 max-w-[50%] pr-4 text-left">
                   <p className="font-bold text-base mb-1 text-gray-900">To,</p>
@@ -377,7 +364,7 @@ export default function App() {
                 </thead>
                 <tbody>
                   {(appState === 'invoice' ? invoice.items : quotation.items).map((item, index) => (
-                    <tr key={item.id} style={{ pageBreakInside: 'avoid' }}>
+                    <tr key={item.id}>
                       <td className="border border-gray-400 p-1.5 text-center break-words">{index + 1}</td>
                       <td className="border border-gray-400 p-1.5 whitespace-pre-wrap leading-relaxed break-words text-gray-800">{item.desc}</td>
                       <td className="border border-gray-400 p-1.5 text-center break-words">{item.qty}</td>
@@ -387,7 +374,7 @@ export default function App() {
                     </tr>
                   ))}
                 </tbody>
-                <tbody style={{ pageBreakInside: 'avoid' }} className="break-inside-avoid text-sm">
+                <tbody className="text-sm">
                   <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">{appState === 'invoice' ? 'Sub Total' : 'Total'}</td><td className="border border-gray-400 p-1.5 text-right font-bold">{formatCurrency(calculateTotals(appState === 'invoice' ? invoice.items : quotation.items, appState === 'invoice' ? invoice.applyGst : false).subtotal)}</td></tr>
                   {appState === 'invoice' && invoice.applyGst && (
                     <>
@@ -405,14 +392,14 @@ export default function App() {
               </table>
 
               {appState === 'quotation' && quotation.notes.length > 0 && (
-                <div className="mt-4 mb-8 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
+                <div className="mt-4 mb-8">
                   <p className="font-bold mb-1 underline text-base">Notes:</p>
                   {quotation.notes.map((note, index) => note.trim() !== '' && <p key={index} className="mb-1 text-gray-800 text-sm">{note}</p>)}
                 </div>
               )}
 
-              <div className="mt-auto print:mt-12 flex justify-end pb-8 print:pb-0 break-inside-avoid" style={{ pageBreakInside: 'avoid' }}>
-                <div className="text-center mt-12 print:mt-8">
+              <div className="mt-auto flex justify-end pb-8">
+                <div className="text-center mt-12">
                   <p className="font-bold text-lg mb-12 text-gray-800 uppercase">Shreeji Construction</p>
                   <p className="border-t-2 border-gray-400 pt-1 px-4 text-gray-600 text-sm">Authorized Signatory</p>
                 </div>
@@ -439,15 +426,15 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Client Name:</label>
-                  <input type="text" value={invoice.toName} onChange={e => setInvoice({...invoice, toName: e.target.value})} placeholder="Client name" className="w-full p-2 border rounded font-bold outline-none focus:border-orange-500" />
+                  <input type="text" value={invoice.toName} onChange={e => setInvoice({...invoice, toName: e.target.value})} placeholder="Kaun hai client?" className="w-full p-2 border rounded font-bold outline-none focus:border-orange-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Address:</label>
-                  <textarea value={invoice.address} onChange={e => setInvoice({...invoice, address: e.target.value})} placeholder="Client address" className="w-full p-2 border rounded h-16 outline-none focus:border-orange-500" />
+                  <textarea value={invoice.address} onChange={e => setInvoice({...invoice, address: e.target.value})} placeholder="Client ka pata..." className="w-full p-2 border rounded h-16 outline-none focus:border-orange-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">GSTIN:</label>
-                  <input type="text" value={invoice.gstNo} onChange={e => setInvoice({...invoice, gstNo: e.target.value})} placeholder="Client GST No." className="w-full p-2 border rounded uppercase outline-none focus:border-orange-500" />
+                  <input type="text" value={invoice.gstNo} onChange={e => setInvoice({...invoice, gstNo: e.target.value})} placeholder="Client ka GST No." className="w-full p-2 border rounded uppercase outline-none focus:border-orange-500" />
                 </div>
               </div>
             ) : (
@@ -502,43 +489,29 @@ export default function App() {
               }} className="w-full py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 font-bold rounded border-2 border-dashed border-blue-200 flex justify-center items-center gap-2"><Plus size={16} /> Add Item</button>
             </div>
 
-            {/* NOTES SECTION (Only for Quotation) */}
             {appState === 'quotation' && (
               <div className="pt-4 mt-4 border-t-2 border-gray-100">
                 <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-bold text-sm uppercase text-gray-800">Terms & Conditions (Notes)</h3>
-                  <button onClick={() => setQuotation({ ...quotation, notes: [...defaultNotes] })} className="text-xs font-bold text-orange-700 hover:text-orange-800 underline">Reset Notes</button>
+                  <h3 className="font-bold text-sm uppercase text-gray-800">Terms & Conditions</h3>
+                  <button onClick={() => setQuotation({ ...quotation, notes: [...defaultNotes] })} className="text-xs font-bold text-orange-700 hover:text-orange-800 underline">Reset</button>
                 </div>
                 
                 {quotation.notes.map((note, index) => (
                   <div key={index} className="flex gap-2 mb-2">
-                    <input 
-                      type="text" 
-                      value={note} 
-                      onChange={e => handleNoteChange(index, e.target.value)} 
-                      className="w-full p-2 border rounded text-sm focus:border-orange-500 outline-none" 
-                      placeholder="Enter note..."
-                    />
-                    <button onClick={() => removeNote(index)} className="bg-red-50 text-red-500 px-3 rounded hover:bg-red-100 transition-colors">
-                      <Trash2 size={16} />
-                    </button>
+                    <input type="text" value={note} onChange={e => handleNoteChange(index, e.target.value)} className="w-full p-2 border rounded text-sm focus:border-orange-500 outline-none" placeholder="Enter note..." />
+                    <button onClick={() => removeNote(index)} className="bg-red-50 text-red-500 px-3 rounded hover:bg-red-100"><Trash2 size={16} /></button>
                   </div>
                 ))}
                 
-                <button 
-                  onClick={addNote} 
-                  className="w-full mt-2 py-2 bg-gray-50 text-gray-600 hover:bg-gray-100 font-bold rounded border border-dashed border-gray-300 flex justify-center items-center gap-2 text-sm transition-colors"
-                >
-                  <Plus size={16} /> Add Custom Note
-                </button>
+                <button onClick={addNote} className="w-full mt-2 py-2 bg-gray-50 text-gray-600 hover:bg-gray-100 font-bold rounded border border-dashed border-gray-300 flex justify-center items-center gap-2 text-sm"><Plus size={16} /> Add Custom Note</button>
               </div>
             )}
           </div>
           
           <div className="bg-white p-4 border-t shadow-inner shrink-0 z-20">
-            {showSuccess && <div className="text-center text-green-600 font-bold text-sm mb-2"><CheckCircle size={16} className="inline mr-1"/> Saved Successfully!</div>}
+            {showSuccess && <div className="text-center text-green-600 font-bold text-sm mb-2"><CheckCircle size={16} className="inline mr-1"/> Saved to History! Now you can print</div>}
             <button onClick={handleSaveAndPrint} disabled={isSaving} className={`w-full ${isSaving ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'} text-white p-4 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg`}>
-              <Printer size={20} /> {isSaving ? 'Updating...' : (editingId ? 'Update & Print' : 'Print / Save PDF')}
+              <Printer size={20} /> {isSaving ? 'Saving...' : (editingId ? 'Update & Print' : 'Print / Save PDF')}
             </button>
           </div>
         </div>
@@ -547,17 +520,40 @@ export default function App() {
       <style dangerouslySetInnerHTML={{__html: `
         @media print {
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-sizing: border-box !important; }
-          body, html, #root { width: 100% !important; height: auto !important; overflow: visible !important; background-color: white !important; margin: 0 !important; padding: 0 !important; position: static !important; }
+          body, html, #root { width: 100% !important; height: auto !important; background: white !important; margin: 0 !important; padding: 0 !important; display: block !important; }
           .print\\:hidden { display: none !important; }
-          .print\\:block { display: block !important; }
-          .print\\:w-full { width: 100% !important; max-width: none !important; }
-          .print\\:bg-transparent { background-color: transparent !important; }
-          .print\\:shadow-none { box-shadow: none !important; }
-          .print\\:static { position: static !important; }
-          table { page-break-inside: auto; border-collapse: collapse; width: 100% !important; }
-          tr { page-break-inside: avoid !important; break-inside: avoid !important; page-break-after: auto; }
-          td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
+          
+          /* COMPLETE FLEXBOX DESTRUCTION FOR PRINT */
+          .print-wrapper-1, .print-wrapper-2, .print-wrapper-3 {
+             display: block !important;
+             height: auto !important;
+             min-height: 0 !important;
+             max-height: none !important;
+             overflow: visible !important;
+             width: 100% !important;
+             position: static !important;
+             margin: 0 !important;
+             padding: 0 !important;
+             background: white !important;
+          }
+
+          .print-paper {
+             display: block !important;
+             height: auto !important;
+             min-height: 0 !important;
+             width: 100% !important;
+             margin: 0 !important;
+             padding: 0 !important;
+             box-shadow: none !important;
+             position: static !important;
+          }
+
+          /* TABLE FIXES */
+          table { width: 100% !important; border-collapse: collapse; table-layout: fixed; page-break-inside: auto; }
           thead { display: table-header-group; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+          td, th { page-break-inside: avoid; word-wrap: break-word; }
+          
           .print-page-wrapper { padding: 15mm 15mm !important; }
           @page { margin: 0; size: A4 portrait; }
           ::-webkit-scrollbar { display: none; }
