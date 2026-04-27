@@ -104,6 +104,57 @@ app.put('/api/invoices/:id', async (req, res) => {
   }
 });
 
+// Quotation ka structure (Schema)
+const quotationSchema = new mongoose.Schema({
+  date: String,
+  financialYear: Number,
+  toName: String,
+  address: String,
+  items: Array,
+  notes: Array
+}, { timestamps: true });
+
+const Quotation = mongoose.model('Quotation', quotationSchema);
+
+// Purane sabhi Quotations lane ka API
+app.get('/api/quotations', async (req, res) => {
+  try {
+    const quotations = await Quotation.find().sort({ createdAt: -1 });
+    res.json(quotations);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Naya Quotation Save karne ka API
+app.post('/api/quotations', async (req, res) => {
+  try {
+    const data = req.body;
+    data.financialYear = getFinancialYear(data.date);
+    const newQuotation = new Quotation(data);
+    await newQuotation.save();
+    res.json({ success: true, message: 'Quotation Save Ho Gaya!' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Purana Quotation Update karne ka API
+app.put('/api/quotations/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = req.body;
+    data.financialYear = getFinancialYear(data.date);
+    const updatedQuotation = await Quotation.findByIdAndUpdate(id, data, { new: true });
+    if (!updatedQuotation) return res.status(404).json({ success: false, message: 'Quotation nahi mila!' });
+    res.json({ success: true, message: 'Quotation Update Ho Gaya!' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+
+
 // Port bhi ab .env se aayega (Default 5000)
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Backend server chalu hai: http://localhost:${PORT}`));

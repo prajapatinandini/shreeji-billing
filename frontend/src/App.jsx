@@ -20,14 +20,8 @@ const defaultNotes = [
 ];
 
 // Backend URL setup safely
-let API_BASE_URL = 'http://localhost:5000';
-try {
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
-    API_BASE_URL = import.meta.env.VITE_API_URL;
-  }
-} catch (e) {
-  API_BASE_URL = 'http://localhost:5000';
-}
+// Note: GitHub/Vercel par deploy karte waqt is 'http://localhost:5000' ko apne Render backend URL se replace kar lijiye.
+const API_BASE_URL = 'http://localhost:5000';
 
 export default function App() {
   const [appState, setAppState] = useState('home'); // 'home', 'invoice', 'quotation', 'history'
@@ -37,7 +31,8 @@ export default function App() {
   // History State
   const [historyList, setHistoryList] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [editingId, setEditingId] = useState(null); // Purana bill edit karne ke liye ID store karega
+  const [historyType, setHistoryType] = useState('invoice'); // 'invoice' ya 'quotation'
+  const [editingId, setEditingId] = useState(null); // Purana bill/quotation edit karne ke liye ID
 
   const todayDate = new Date().toISOString().split('T')[0];
 
@@ -47,13 +42,14 @@ export default function App() {
     applyGst: true
   });
 
-  const [invoice, setInvoice] = useState(getEmptyInvoice());
-
-  const [quotation, setQuotation] = useState({
+  const getEmptyQuotation = () => ({
     toName: '', address: '', date: todayDate, 
     items: [...defaultQuotationItems],
     notes: [...defaultNotes]
   });
+
+  const [invoice, setInvoice] = useState(getEmptyInvoice());
+  const [quotation, setQuotation] = useState(getEmptyQuotation());
 
   // CSS DIRECT INTERNET SE LOAD KAREIN
   useEffect(() => {
@@ -87,7 +83,8 @@ export default function App() {
   useEffect(() => {
     if (appState === 'history') {
       setIsLoadingHistory(true);
-      fetch(`${API_BASE_URL}/api/invoices`)
+      const endpoint = historyType === 'invoice' ? '/api/invoices' : '/api/quotations';
+      fetch(`${API_BASE_URL}${endpoint}`)
         .then(res => res.json())
         .then(data => {
           setHistoryList(data);
@@ -98,7 +95,7 @@ export default function App() {
           setIsLoadingHistory(false);
         });
     }
-  }, [appState]);
+  }, [appState, historyType]);
 
   const formatCurrency = (amount) => {
     if (!amount || isNaN(amount)) return '';
@@ -142,33 +139,32 @@ export default function App() {
   };
 
   const handleSaveAndPrint = async () => {
-    if (appState === 'invoice') {
-      setIsSaving(true);
-      try {
-        // Agar edit kar rahe hain toh PUT (Update), warna POST (New)
-        const url = editingId ? `${API_BASE_URL}/api/invoices/${editingId}` : `${API_BASE_URL}/api/invoices`;
-        const method = editingId ? 'PUT' : 'POST';
+    setIsSaving(true);
+    try {
+      const endpoint = appState === 'invoice' ? '/api/invoices' : '/api/quotations';
+      const url = editingId ? `${API_BASE_URL}${endpoint}/${editingId}` : `${API_BASE_URL}${endpoint}`;
+      const method = editingId ? 'PUT' : 'POST';
+      const payload = appState === 'invoice' ? invoice : quotation;
 
-        await fetch(url, {
-          method: method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(invoice)
-        });
-        
-        setShowSuccess(true);
-        setTimeout(() => setShowSuccess(false), 2000);
-        window.print();
-        
-        // Print ke baad reset
-        setEditingId(null);
-        setInvoice(getEmptyInvoice());
-      } catch (error) {
-        window.print(); 
-      }
-      setIsSaving(false);
-    } else {
+      await fetch(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 2000);
+      window.print();
+      
+      // Print ke baad reset
+      setEditingId(null);
+      if (appState === 'invoice') setInvoice(getEmptyInvoice());
+      if (appState === 'quotation') setQuotation(getEmptyQuotation());
+
+    } catch (error) {
       window.print(); 
     }
+    setIsSaving(false);
   };
 
   const handleEditInvoice = (inv) => {
@@ -185,10 +181,28 @@ export default function App() {
     setAppState('invoice');
   };
 
+  const handleEditQuotation = (quot) => {
+    setEditingId(quot._id);
+    setQuotation({
+      toName: quot.toName || '',
+      address: quot.address || '',
+      date: quot.date || todayDate,
+      items: quot.items && quot.items.length > 0 ? quot.items : [...defaultQuotationItems],
+      notes: quot.notes && quot.notes.length > 0 ? quot.notes : [...defaultNotes]
+    });
+    setAppState('quotation');
+  };
+
   const createNewInvoice = () => {
     setEditingId(null);
     setInvoice(getEmptyInvoice());
     setAppState('invoice');
+  };
+
+  const createNewQuotation = () => {
+    setEditingId(null);
+    setQuotation(getEmptyQuotation());
+    setAppState('quotation');
   };
 
   const HeaderBlock = () => (
@@ -232,9 +246,9 @@ export default function App() {
               <FileText size={24} /> Create Tax Invoice
             </button>
             <button onClick={() => setAppState('history')} className="w-full bg-gray-800 hover:bg-gray-900 text-white p-4 rounded-xl text-lg font-bold flex items-center justify-center gap-4 transition-transform active:scale-95 shadow-md">
-              <History size={24} /> View Old Invoices
+              <History size={24} /> View History
             </button>
-            <button onClick={() => setAppState('quotation')} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl text-lg font-bold flex items-center justify-center gap-4 transition-transform active:scale-95 shadow-md mt-6">
+            <button onClick={createNewQuotation} className="w-full bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-xl text-lg font-bold flex items-center justify-center gap-4 transition-transform active:scale-95 shadow-md mt-6">
               <FileSpreadsheet size={24} /> Create Quotation
             </button>
           </div>
@@ -248,15 +262,31 @@ export default function App() {
       <div className="min-h-screen bg-gray-100 flex flex-col items-center p-4 sm:p-8">
         <div className="w-full max-w-5xl bg-white p-6 sm:p-8 rounded-2xl shadow-xl border-t-8 border-orange-500">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><History className="text-orange-500"/> Invoice History</h2>
+            <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2"><History className="text-orange-500"/> Document History</h2>
             <button onClick={() => setAppState('home')} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 flex items-center gap-2 transition-colors"><ArrowLeft size={18}/> Back</button>
+          </div>
+
+          {/* Toggle Between Invoice and Quotation History */}
+          <div className="flex gap-4 mb-6 border-b pb-4">
+            <button 
+              onClick={() => setHistoryType('invoice')}
+              className={`px-4 py-2 rounded-lg font-bold transition-colors ${historyType === 'invoice' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              Tax Invoices
+            </button>
+            <button 
+              onClick={() => setHistoryType('quotation')}
+              className={`px-4 py-2 rounded-lg font-bold transition-colors ${historyType === 'quotation' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            >
+              Quotations
+            </button>
           </div>
 
           {isLoadingHistory ? (
             <p className="text-center text-gray-500 py-10 font-medium">Loading history...</p>
           ) : historyList.length === 0 ? (
             <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
-              <p className="text-gray-500 font-medium">No saved invoices found in database.</p>
+              <p className="text-gray-500 font-medium">No saved {historyType}s found in database.</p>
             </div>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-gray-200">
@@ -264,23 +294,26 @@ export default function App() {
                 <thead>
                   <tr className="bg-gray-100 text-gray-700 text-sm">
                     <th className="p-3 border-b font-bold">Date</th>
-                    <th className="p-3 border-b font-bold text-center">Inv No.</th>
+                    {historyType === 'invoice' && <th className="p-3 border-b font-bold text-center">Inv No.</th>}
                     <th className="p-3 border-b font-bold">Client Name</th>
                     <th className="p-3 border-b font-bold text-right">Amount</th>
                     <th className="p-3 border-b font-bold text-center">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {historyList.map((inv) => (
-                    <tr key={inv._id} className="hover:bg-orange-50 transition-colors border-b last:border-b-0">
-                      <td className="p-3 text-sm">{inv.date ? inv.date.split('-').reverse().join('-') : '-'}</td>
-                      <td className="p-3 text-sm text-center font-bold text-orange-700">#{inv.invoiceNo}</td>
-                      <td className="p-3 text-sm font-medium text-gray-800">{inv.toName || 'Unknown'}</td>
+                  {historyList.map((doc) => (
+                    <tr key={doc._id} className="hover:bg-orange-50 transition-colors border-b last:border-b-0">
+                      <td className="p-3 text-sm">{doc.date ? doc.date.split('-').reverse().join('-') : '-'}</td>
+                      {historyType === 'invoice' && <td className="p-3 text-sm text-center font-bold text-orange-700">#{doc.invoiceNo}</td>}
+                      <td className="p-3 text-sm font-medium text-gray-800">{doc.toName || 'Unknown'}</td>
                       <td className="p-3 text-sm text-right font-bold text-gray-800">
-                        ₹{formatCurrency(calculateTotals(inv.items || [], inv.applyGst !== undefined ? inv.applyGst : true).total)}
+                        ₹{formatCurrency(calculateTotals(doc.items || [], historyType === 'invoice' && doc.applyGst !== undefined ? doc.applyGst : false).total)}
                       </td>
                       <td className="p-3 text-center">
-                        <button onClick={() => handleEditInvoice(inv)} className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded font-bold text-xs inline-flex items-center gap-1 transition-colors">
+                        <button 
+                          onClick={() => historyType === 'invoice' ? handleEditInvoice(doc) : handleEditQuotation(doc)} 
+                          className="bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded font-bold text-xs inline-flex items-center gap-1 transition-colors"
+                        >
                           <Edit size={14} /> Edit
                         </button>
                       </td>
@@ -295,11 +328,16 @@ export default function App() {
     );
   }
 
+  const isEditing = editingId !== null;
+  const pageTitle = appState === 'invoice' 
+    ? (isEditing ? 'Edit Tax Invoice' : 'New Tax Invoice') 
+    : (isEditing ? 'Edit Quotation' : 'New Quotation');
+
   return (
     <div className="h-screen print:h-auto w-full flex print:block flex-col bg-gray-100 print:bg-transparent overflow-hidden print:overflow-visible font-sans">
       <nav className="bg-orange-600 text-white p-3 shadow-md print:hidden flex items-center justify-between shrink-0 z-50">
         <button onClick={() => setAppState('home')} className="flex items-center gap-2 bg-orange-700 px-3 py-1.5 rounded text-sm font-bold hover:bg-orange-800"><ArrowLeft size={18} /> Home</button>
-        <h1 className="font-bold text-lg">{appState === 'invoice' ? (editingId ? 'Edit Tax Invoice' : 'New Tax Invoice') : 'Quotation'}</h1>
+        <h1 className="font-bold text-lg">{pageTitle}</h1>
         <Building2 size={24} className="opacity-80"/>
       </nav>
 
@@ -307,7 +345,7 @@ export default function App() {
         <div className="order-1 lg:order-2 w-full lg:w-3/5 xl:w-2/3 h-[45vh] lg:h-full overflow-auto bg-gray-300 print:bg-transparent print:h-auto print:overflow-visible print:w-full print:block relative print:static border-b-4 border-gray-400 lg:border-b-0 lg:border-l-4 print:border-none">
           <div className="print:hidden sticky top-0 bg-gray-800/80 text-white text-xs p-1.5 text-center font-medium z-10 backdrop-blur-sm">👁️ Live Preview</div>
 
-          <div className="bg-white shadow-2xl print:shadow-none min-w-[700px] sm:min-w-[800px] print:min-w-0 print:w-full min-h-[1056px] print:min-h-0 p-8 mx-auto origin-top mt-2 mb-10 print:m-0 print:px-4 print:py-2 relative print:static flex flex-col print:block print:overflow-visible print:h-auto print:bg-transparent">
+          <div className="bg-white shadow-2xl print:shadow-none min-w-[700px] sm:min-w-[800px] print:min-w-0 print:w-full min-h-[1056px] print:min-h-0 p-8 mx-auto origin-top mt-2 mb-10 print:m-0 relative print:static flex flex-col print:block print:overflow-visible print:h-auto print:bg-transparent print-page-wrapper">
               <HeaderBlock />
               
               {/* Common Section for Both */}
@@ -384,7 +422,7 @@ export default function App() {
 
         <div className="order-2 lg:order-1 w-full lg:w-2/5 xl:w-1/3 h-[55vh] lg:h-full flex flex-col bg-white print:hidden">
           <div className="bg-orange-100 text-orange-800 p-2 text-center text-sm font-bold border-b border-orange-200 shrink-0 sticky top-0 z-10 uppercase">
-            {editingId ? '✏️ Editing Old Bill' : '✍️ Fill Details'}
+            {editingId ? `✏️ Editing Old ${appState}` : '✍️ Fill Details'}
           </div>
           <div className="flex-1 overflow-auto p-4 sm:p-6 pb-24">
             {appState === 'invoice' ? (
@@ -518,8 +556,10 @@ export default function App() {
           .print\\:static { position: static !important; }
           table { page-break-inside: auto; border-collapse: collapse; width: 100% !important; }
           tr { page-break-inside: avoid !important; break-inside: avoid !important; page-break-after: auto; }
+          td, th { page-break-inside: avoid !important; break-inside: avoid !important; }
           thead { display: table-header-group; }
-          @page { margin: 12mm 15mm; size: A4 portrait; }
+          .print-page-wrapper { padding: 15mm 15mm !important; }
+          @page { margin: 0; size: A4 portrait; }
           ::-webkit-scrollbar { display: none; }
         }
       `}} />
