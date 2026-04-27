@@ -240,7 +240,7 @@ export default function App() {
         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center border-t-8 border-orange-500">
           <div className="flex justify-center mb-6"><Building2 size={60} className="text-orange-500"/></div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Shreeji Construction</h2>
-          <p className="text-gray-500 mb-8">Kya banana hai aaj?</p>
+          <p className="text-gray-500 mb-8">What would you like to do today?</p>
           <div className="space-y-4">
             <button onClick={createNewInvoice} className="w-full bg-orange-600 hover:bg-orange-700 text-white p-4 rounded-xl text-lg font-bold flex items-center justify-center gap-4 transition-transform active:scale-95 shadow-md">
               <FileText size={24} /> Create Tax Invoice
@@ -439,15 +439,15 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Client Name:</label>
-                  <input type="text" value={invoice.toName} onChange={e => setInvoice({...invoice, toName: e.target.value})} placeholder="Kaun hai client?" className="w-full p-2 border rounded font-bold outline-none focus:border-orange-500" />
+                  <input type="text" value={invoice.toName} onChange={e => setInvoice({...invoice, toName: e.target.value})} placeholder="Client name" className="w-full p-2 border rounded font-bold outline-none focus:border-orange-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Address:</label>
-                  <textarea value={invoice.address} onChange={e => setInvoice({...invoice, address: e.target.value})} placeholder="Client ka pata..." className="w-full p-2 border rounded h-16 outline-none focus:border-orange-500" />
+                  <textarea value={invoice.address} onChange={e => setInvoice({...invoice, address: e.target.value})} placeholder="Client address" className="w-full p-2 border rounded h-16 outline-none focus:border-orange-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">GSTIN:</label>
-                  <input type="text" value={invoice.gstNo} onChange={e => setInvoice({...invoice, gstNo: e.target.value})} placeholder="Client ka GST No." className="w-full p-2 border rounded uppercase outline-none focus:border-orange-500" />
+                  <input type="text" value={invoice.gstNo} onChange={e => setInvoice({...invoice, gstNo: e.target.value})} placeholder="Client GST No." className="w-full p-2 border rounded uppercase outline-none focus:border-orange-500" />
                 </div>
               </div>
             ) : (
