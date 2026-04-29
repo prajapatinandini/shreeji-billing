@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Printer, Plus, Trash2, FileText, FileSpreadsheet, Building2, ArrowLeft, CheckCircle, History, Edit } from 'lucide-react';
+import { Printer, Plus, Trash2, FileText, FileSpreadsheet, Building2, ArrowLeft, CheckCircle, History, Edit, Share2 } from 'lucide-react';
 
 // Common Units (English)
 const commonUnits = ['Sq.Ft', 'Cu.Ft', 'R.Ft', 'Nos', 'Ltr', 'Lumpsum', '-'];
@@ -20,18 +20,26 @@ const defaultNotes = [
 ];
 
 // Backend URL setup safely
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+let API_BASE_URL = 'http://localhost:5000';
+if (typeof window !== 'undefined' && window.location.hostname !== 'localhost') {
+  API_BASE_URL = 'https://shreeji-billing.onrender.com';
+}
+// Clean trailing slash just in case
+if (API_BASE_URL.endsWith('/')) {
+  API_BASE_URL = API_BASE_URL.slice(0, -1);
+}
 
 export default function App() {
   const [appState, setAppState] = useState('home'); // 'home', 'invoice', 'quotation', 'history'
   const [isSaving, setIsSaving] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   
   // History State
   const [historyList, setHistoryList] = useState([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  const [historyType, setHistoryType] = useState('invoice'); // 'invoice' ya 'quotation'
-  const [editingId, setEditingId] = useState(null); // Purana bill edit karne ke liye ID
+  const [historyType, setHistoryType] = useState('invoice'); 
+  const [editingId, setEditingId] = useState(null); 
 
   const todayDate = new Date().toISOString().split('T')[0];
 
@@ -50,13 +58,21 @@ export default function App() {
   const [invoice, setInvoice] = useState(getEmptyInvoice());
   const [quotation, setQuotation] = useState(getEmptyQuotation());
 
-  // CSS DIRECT INTERNET SE LOAD KAREIN
+  // CSS and PDF Library Loading
   useEffect(() => {
+    // Load Tailwind
     if (!document.getElementById('tailwind-cdn')) {
       const script = document.createElement('script');
       script.id = 'tailwind-cdn';
       script.src = 'https://cdn.tailwindcss.com';
       document.head.appendChild(script);
+    }
+    // Load html2pdf for direct PDF Sharing
+    if (!document.getElementById('html2pdf-cdn')) {
+      const script2 = document.createElement('script');
+      script2.id = 'html2pdf-cdn';
+      script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
+      document.head.appendChild(script2);
     }
   }, []);
 
@@ -137,9 +153,8 @@ export default function App() {
     return { subtotal, gstAmount, total };
   };
 
-  // MOBILE FIX + SAVE LOGIC
-  const handleSaveAndPrint = async () => {
-    setIsSaving(true);
+  // COMMON SAVE LOGIC (Database)
+  const saveToDatabase = async () => {
     try {
       const endpoint = appState === 'invoice' ? '/api/invoices' : '/api/quotations';
       const url = editingId ? `${API_BASE_URL}${endpoint}/${editingId}` : `${API_BASE_URL}${endpoint}`;
@@ -151,28 +166,86 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      
-      // Success dikhao
-      setShowSuccess(true);
-      
-      // Thoda delay dekar window.print call karo mobile ke liye
-      setTimeout(() => {
-        window.print();
-      }, 500);
-
-      // 3 second baad success message hatao aur reset karo
-      setTimeout(() => {
-        setShowSuccess(false);
-        setEditingId(null);
-        if (appState === 'invoice') setInvoice(getEmptyInvoice());
-        if (appState === 'quotation') setQuotation(getEmptyQuotation());
-      }, 3000);
-
+      return true;
     } catch (error) {
-      alert("Database error. Abhi print kar rahe hain par history me save nahi hua.");
-      window.print(); 
+      console.error(error);
+      return false;
     }
-    setIsSaving(false);
+  };
+
+  const resetFormAndGoHome = () => {
+    setShowSuccess(false);
+    setEditingId(null);
+    if (appState === 'invoice') setInvoice(getEmptyInvoice());
+    if (appState === 'quotation') setQuotation(getEmptyQuotation());
+    setAppState('home');
+  };
+
+  // MOBILE FIX + NORMAL PRINT
+  const handleSaveAndPrint = async () => {
+    setIsSaving(true);
+    await saveToDatabase();
+    setShowSuccess(true);
+    
+    setTimeout(() => window.print(), 500);
+
+    setTimeout(() => {
+      resetFormAndGoHome();
+      setIsSaving(false);
+    }, 3000);
+  };
+
+  // DIRECT PDF SHARE FEATURE
+  const handleDirectPdfShare = async () => {
+    if (!window.html2pdf) {
+      alert("Please wait 2 seconds, PDF system is loading...");
+      return;
+    }
+
+    setIsSharing(true);
+    
+    // 1. Save to database first
+    await saveToDatabase();
+    setShowSuccess(true);
+
+    // 2. Generate PDF
+    const element = document.getElementById('print-paper-content');
+    const docType = appState === 'invoice' ? 'Invoice' : 'Quotation';
+    const clientName = (appState === 'invoice' ? invoice.toName : quotation.toName) || 'Client';
+    const fileName = `${docType}_${clientName}.pdf`.replace(/ /g, '_');
+
+    const opt = {
+      margin:       10,
+      filename:     fileName,
+      image:        { type: 'jpeg', quality: 0.98 },
+      html2canvas:  { scale: 2, useCORS: true },
+      jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+    };
+
+    try {
+      // Create Blob
+      const pdfBlob = await window.html2pdf().set(opt).from(element).outputPdf('blob');
+      const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      // 3. Try Native Share
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: fileName,
+          text: `Please find the attached ${docType} from Shreeji Construction.`
+        });
+      } else {
+        // Fallback if browser doesn't support direct share (like PC)
+        alert("Direct share not supported on this browser. Downloading PDF automatically.");
+        window.html2pdf().set(opt).from(element).save();
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Failed to generate PDF. Please use the Print button instead.");
+    }
+
+    setIsSharing(false);
+    resetFormAndGoHome();
   };
 
   const handleEditInvoice = (inv) => {
@@ -204,12 +277,14 @@ export default function App() {
   const createNewInvoice = () => {
     setEditingId(null);
     setInvoice(getEmptyInvoice());
+    setIsSaving(false);
     setAppState('invoice');
   };
 
   const createNewQuotation = () => {
     setEditingId(null);
     setQuotation(getEmptyQuotation());
+    setIsSaving(false);
     setAppState('quotation');
   };
 
@@ -248,7 +323,7 @@ export default function App() {
         <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center border-t-8 border-orange-500">
           <div className="flex justify-center mb-6"><Building2 size={60} className="text-orange-500"/></div>
           <h2 className="text-2xl font-bold text-gray-800 mb-2">Shreeji Construction</h2>
-          <p className="text-gray-500 mb-8">Welcome to Shreeji Construction!</p>
+          <p className="text-gray-500 mb-8">Kya banana hai aaj?</p>
           <div className="space-y-4">
             <button onClick={createNewInvoice} className="w-full bg-orange-600 hover:bg-orange-700 text-white p-4 rounded-xl text-lg font-bold flex items-center justify-center gap-4 transition-transform active:scale-95 shadow-md">
               <FileText size={24} /> Create Tax Invoice
@@ -280,7 +355,14 @@ export default function App() {
           </div>
 
           {isLoadingHistory ? (
-            <p className="text-center text-gray-500 py-10 font-medium">Loading history...</p>
+            <div className="text-center py-12">
+              <p className="text-gray-800 font-bold text-xl mb-3 flex items-center justify-center gap-2">
+                <span className="animate-spin text-2xl">⏳</span> Loading history...
+              </p>
+              <p className="text-sm text-orange-600 font-medium max-w-md mx-auto bg-orange-50 p-3 rounded border border-orange-200">
+                (Note: Free servers take ~50 seconds to wake up if inactive. Kripya 1 minute intezaar karein.)
+              </p>
+            </div>
           ) : historyList.length === 0 ? (
             <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
               <p className="text-gray-500 font-medium">No saved {historyType}s found in database.</p>
@@ -334,74 +416,78 @@ export default function App() {
           <div className="print:hidden sticky top-0 bg-gray-800/80 text-white text-xs p-1.5 text-center font-medium z-10 backdrop-blur-sm">👁️ Live Preview</div>
 
           <div className="bg-white shadow-2xl min-w-[700px] sm:min-w-[800px] min-h-[1056px] p-8 mx-auto origin-top mt-2 mb-10 relative flex flex-col print-paper print-page-wrapper">
-              <HeaderBlock />
               
-              <div className="flex justify-between items-start mb-6">
-                <div className="w-1/2 max-w-[50%] pr-4 text-left">
-                  <p className="font-bold text-base mb-1 text-gray-900">To,</p>
-                  <p className="font-bold text-lg text-gray-900 leading-tight break-words">{appState === 'invoice' ? invoice.toName : quotation.toName}</p>
-                  <p className="whitespace-pre-wrap text-gray-800 text-sm mt-1.5 leading-relaxed break-words">{appState === 'invoice' ? invoice.address : quotation.address}</p>
-                  {appState === 'invoice' && invoice.gstNo && <p className="font-bold text-gray-900 mt-2 text-sm uppercase">GST NO.: {invoice.gstNo}</p>}
+              {/* ID added here to capture the PDF content exactly */}
+              <div id="print-paper-content" className="p-4 bg-white">
+                <HeaderBlock />
+                
+                <div className="flex justify-between items-start mb-6">
+                  <div className="w-1/2 max-w-[50%] pr-4 text-left">
+                    <p className="font-bold text-base mb-1 text-gray-900">To,</p>
+                    <p className="font-bold text-lg text-gray-900 leading-tight break-words">{appState === 'invoice' ? invoice.toName : quotation.toName}</p>
+                    <p className="whitespace-pre-wrap text-gray-800 text-sm mt-1.5 leading-relaxed break-words">{appState === 'invoice' ? invoice.address : quotation.address}</p>
+                    {appState === 'invoice' && invoice.gstNo && <p className="font-bold text-gray-900 mt-2 text-sm uppercase">GST NO.: {invoice.gstNo}</p>}
+                  </div>
+                  <div className="text-right w-1/2 pl-4">
+                    <p className="font-bold text-base text-gray-900 uppercase">Date: {appState === 'invoice' ? (invoice.date ? invoice.date.split('-').reverse().join('-') : '') : (quotation.date ? quotation.date.split('-').reverse().join('-') : '')}</p>
+                    {appState === 'invoice' && <p className="font-bold text-base text-gray-900 mt-1 uppercase">Invoice No: {invoice.invoiceNo}</p>}
+                  </div>
                 </div>
-                <div className="text-right w-1/2 pl-4">
-                  <p className="font-bold text-base text-gray-900 uppercase">Date: {appState === 'invoice' ? (invoice.date ? invoice.date.split('-').reverse().join('-') : '') : (quotation.date ? quotation.date.split('-').reverse().join('-') : '')}</p>
-                  {appState === 'invoice' && <p className="font-bold text-base text-gray-900 mt-1 uppercase">Invoice No: {invoice.invoiceNo}</p>}
-                </div>
-              </div>
 
-              {appState === 'quotation' && <h2 className="text-center text-xl font-bold mb-4 underline decoration-2 underline-offset-4 tracking-wider uppercase">Quotation</h2>}
+                {appState === 'quotation' && <h2 className="text-center text-xl font-bold mb-4 underline decoration-2 underline-offset-4 tracking-wider uppercase">Quotation</h2>}
 
-              <table className="w-full table-fixed border-collapse border border-gray-400 mb-8 text-xs">
-                <thead>
-                  <tr className="bg-gray-100 text-sm">
-                    <th className="border border-gray-400 p-1.5 text-center w-[8%]">Sr No.</th>
-                    <th className="border border-gray-400 p-1.5 text-left w-[38%]">Description</th>
-                    <th className="border border-gray-400 p-1.5 text-center w-[12%]">Quantity</th>
-                    <th className="border border-gray-400 p-1.5 text-center w-[12%]">Unit</th>
-                    <th className="border border-gray-400 p-1.5 text-center w-[14%]">Rate</th>
-                    <th className="border border-gray-400 p-1.5 text-right w-[16%]">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(appState === 'invoice' ? invoice.items : quotation.items).map((item, index) => (
-                    <tr key={item.id}>
-                      <td className="border border-gray-400 p-1.5 text-center break-words">{index + 1}</td>
-                      <td className="border border-gray-400 p-1.5 whitespace-pre-wrap leading-relaxed break-words text-gray-800">{item.desc}</td>
-                      <td className="border border-gray-400 p-1.5 text-center break-words">{item.qty}</td>
-                      <td className="border border-gray-400 p-1.5 text-center break-words">{item.unit !== '-' ? item.unit.split(' ')[0] : ''}</td>
-                      <td className="border border-gray-400 p-1.5 text-center break-words">{item.rate}</td>
-                      <td className="border border-gray-400 p-1.5 text-right font-medium break-words">{item.amount ? formatCurrency(item.amount) : ''}</td>
+                <table className="w-full table-fixed border-collapse border border-gray-400 mb-8 text-xs">
+                  <thead>
+                    <tr className="bg-gray-100 text-sm">
+                      <th className="border border-gray-400 p-1.5 text-center w-[8%]">Sr No.</th>
+                      <th className="border border-gray-400 p-1.5 text-left w-[38%]">Description</th>
+                      <th className="border border-gray-400 p-1.5 text-center w-[12%]">Quantity</th>
+                      <th className="border border-gray-400 p-1.5 text-center w-[12%]">Unit</th>
+                      <th className="border border-gray-400 p-1.5 text-center w-[14%]">Rate</th>
+                      <th className="border border-gray-400 p-1.5 text-right w-[16%]">Amount</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tbody className="text-sm">
-                  <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">{appState === 'invoice' ? 'Sub Total' : 'Total'}</td><td className="border border-gray-400 p-1.5 text-right font-bold">{formatCurrency(calculateTotals(appState === 'invoice' ? invoice.items : quotation.items, appState === 'invoice' ? invoice.applyGst : false).subtotal)}</td></tr>
-                  {appState === 'invoice' && invoice.applyGst && (
-                    <>
-                      <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">CGST 9%</td><td className="border border-gray-400 p-1.5 text-right">{formatCurrency(calculateTotals(invoice.items, true).gstAmount)}</td></tr>
-                      <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">SGST 9%</td><td className="border border-gray-400 p-1.5 text-right">{formatCurrency(calculateTotals(invoice.items, true).gstAmount)}</td></tr>
-                    </>
-                  )}
-                  {appState === 'invoice' && (
-                    <tr>
-                      <td colSpan="5" className="border border-gray-400 p-2.5 text-right font-bold text-lg bg-gray-50 uppercase">Grand Total</td>
-                      <td className="border border-gray-400 p-2.5 text-right font-bold text-lg bg-gray-50">{formatCurrency(calculateTotals(invoice.items, invoice.applyGst).total)}</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {(appState === 'invoice' ? invoice.items : quotation.items).map((item, index) => (
+                      <tr key={item.id}>
+                        <td className="border border-gray-400 p-1.5 text-center break-words">{index + 1}</td>
+                        <td className="border border-gray-400 p-1.5 whitespace-pre-wrap leading-relaxed break-words text-gray-800">{item.desc}</td>
+                        <td className="border border-gray-400 p-1.5 text-center break-words">{item.qty}</td>
+                        <td className="border border-gray-400 p-1.5 text-center break-words">{item.unit !== '-' ? item.unit.split(' ')[0] : ''}</td>
+                        <td className="border border-gray-400 p-1.5 text-center break-words">{item.rate}</td>
+                        <td className="border border-gray-400 p-1.5 text-right font-medium break-words">{item.amount ? formatCurrency(item.amount) : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tbody className="text-sm">
+                    <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">{appState === 'invoice' ? 'Sub Total' : 'Total'}</td><td className="border border-gray-400 p-1.5 text-right font-bold">{formatCurrency(calculateTotals(appState === 'invoice' ? invoice.items : quotation.items, appState === 'invoice' ? invoice.applyGst : false).subtotal)}</td></tr>
+                    {appState === 'invoice' && invoice.applyGst && (
+                      <>
+                        <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">CGST 9%</td><td className="border border-gray-400 p-1.5 text-right">{formatCurrency(calculateTotals(invoice.items, true).gstAmount)}</td></tr>
+                        <tr><td colSpan="5" className="border border-gray-400 p-1.5 text-right font-bold uppercase">SGST 9%</td><td className="border border-gray-400 p-1.5 text-right">{formatCurrency(calculateTotals(invoice.items, true).gstAmount)}</td></tr>
+                      </>
+                    )}
+                    {appState === 'invoice' && (
+                      <tr>
+                        <td colSpan="5" className="border border-gray-400 p-2.5 text-right font-bold text-lg bg-gray-50 uppercase">Grand Total</td>
+                        <td className="border border-gray-400 p-2.5 text-right font-bold text-lg bg-gray-50">{formatCurrency(calculateTotals(invoice.items, invoice.applyGst).total)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
 
-              {appState === 'quotation' && quotation.notes.length > 0 && (
-                <div className="mt-4 mb-8">
-                  <p className="font-bold mb-1 underline text-base">Notes:</p>
-                  {quotation.notes.map((note, index) => note.trim() !== '' && <p key={index} className="mb-1 text-gray-800 text-sm">{note}</p>)}
-                </div>
-              )}
+                {appState === 'quotation' && quotation.notes.length > 0 && (
+                  <div className="mt-4 mb-8">
+                    <p className="font-bold mb-1 underline text-base">Notes:</p>
+                    {quotation.notes.map((note, index) => note.trim() !== '' && <p key={index} className="mb-1 text-gray-800 text-sm">{note}</p>)}
+                  </div>
+                )}
 
-              <div className="mt-auto flex justify-end pb-8">
-                <div className="text-center mt-12">
-                  <p className="font-bold text-lg mb-12 text-gray-800 uppercase">Shreeji Construction</p>
-                  <p className="border-t-2 border-gray-400 pt-1 px-4 text-gray-600 text-sm">Authorized Signatory</p>
+                <div className="mt-auto flex justify-end pb-8">
+                  <div className="text-center mt-12">
+                    <p className="font-bold text-lg mb-12 text-gray-800 uppercase">Shreeji Construction</p>
+                    <p className="border-t-2 border-gray-400 pt-1 px-4 text-gray-600 text-sm">Authorized Signatory</p>
+                  </div>
                 </div>
               </div>
           </div>
@@ -426,15 +512,15 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Client Name:</label>
-                  <input type="text" value={invoice.toName} onChange={e => setInvoice({...invoice, toName: e.target.value})} placeholder="Client naame..." className="w-full p-2 border rounded font-bold outline-none focus:border-orange-500" />
+                  <input type="text" value={invoice.toName} onChange={e => setInvoice({...invoice, toName: e.target.value})} placeholder="Kaun hai client?" className="w-full p-2 border rounded font-bold outline-none focus:border-orange-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">Address:</label>
-                  <textarea value={invoice.address} onChange={e => setInvoice({...invoice, address: e.target.value})} placeholder="Client address..." className="w-full p-2 border rounded h-16 outline-none focus:border-orange-500" />
+                  <textarea value={invoice.address} onChange={e => setInvoice({...invoice, address: e.target.value})} placeholder="Client ka pata..." className="w-full p-2 border rounded h-16 outline-none focus:border-orange-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 mb-1">GSTIN:</label>
-                  <input type="text" value={invoice.gstNo} onChange={e => setInvoice({...invoice, gstNo: e.target.value})} placeholder="Client GST No." className="w-full p-2 border rounded uppercase outline-none focus:border-orange-500" />
+                  <input type="text" value={invoice.gstNo} onChange={e => setInvoice({...invoice, gstNo: e.target.value})} placeholder="Client ka GST No." className="w-full p-2 border rounded uppercase outline-none focus:border-orange-500" />
                 </div>
               </div>
             ) : (
@@ -509,10 +595,18 @@ export default function App() {
           </div>
           
           <div className="bg-white p-4 border-t shadow-inner shrink-0 z-20">
-            {showSuccess && <div className="text-center text-green-600 font-bold text-sm mb-2"><CheckCircle size={16} className="inline mr-1"/> Saved to History! Now you can print</div>}
-            <button onClick={handleSaveAndPrint} disabled={isSaving} className={`w-full ${isSaving ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'} text-white p-4 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-lg`}>
-              <Printer size={20} /> {isSaving ? 'Saving...' : (editingId ? 'Update & Print' : 'Print / Save PDF')}
-            </button>
+            {showSuccess && <div className="text-center text-green-600 font-bold text-sm mb-2"><CheckCircle size={16} className="inline mr-1"/> Saved to Database!</div>}
+            
+            <div className="flex flex-col gap-3">
+              <button onClick={handleSaveAndPrint} disabled={isSaving || isSharing} className={`w-full ${isSaving ? 'bg-gray-400' : 'bg-gray-800 hover:bg-gray-900'} text-white p-3 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-md transition-transform active:scale-95`}>
+                <Printer size={20} /> {isSaving ? 'Saving...' : 'Save & Print normally'}
+              </button>
+              
+              <button onClick={handleDirectPdfShare} disabled={isSaving || isSharing} className={`w-full ${isSharing ? 'bg-gray-400' : 'bg-[#25D366] hover:bg-[#128C7E]'} text-white p-4 rounded-xl text-lg font-bold flex justify-center items-center gap-2 shadow-md transition-transform active:scale-95`}>
+                <Share2 size={20} /> {isSharing ? 'Generating PDF...' : 'Share PDF Direct (WhatsApp)'}
+              </button>
+            </div>
+            
           </div>
         </div>
       </div>
